@@ -1,0 +1,4 @@
+{
+  "extends": "@nestjs/cli/lib/compiler/assets/tsconfig.build.json",
+  "exclude": ["node_modules", "**/*spec.ts", "**/*test.ts", "dist", "scripts"]
+}
