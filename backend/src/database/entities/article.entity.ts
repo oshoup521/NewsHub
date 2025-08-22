@@ -15,12 +15,12 @@ import { Category } from './category.entity';
 @Index(['url'], { unique: true })
 @Index(['publishedAt'])
 @Index(['title'])
+@Index(['createdAt'])
 export class Article {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  @Index()
   title: string;
 
   @Column('text', { nullable: true })
@@ -30,7 +30,6 @@ export class Article {
   content?: string;
 
   @Column({ unique: true })
-  @Index()
   url: string;
 
   @Column({ nullable: true })
@@ -55,7 +54,6 @@ export class Article {
   isActive: boolean;
 
   @CreateDateColumn()
-  @Index()
   createdAt: Date;
 
   @UpdateDateColumn()

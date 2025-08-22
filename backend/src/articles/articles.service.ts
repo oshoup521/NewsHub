@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Article } from '../database/entities/article.entity';
+import { Category } from '../database/entities/category.entity';
 
 export interface PaginationQuery {
   page?: number;
@@ -16,6 +17,8 @@ export class ArticlesService {
   constructor(
     @InjectRepository(Article)
     private readonly articleRepository: Repository<Article>,
+    @InjectRepository(Category)
+    private readonly categoryRepository: Repository<Category>,
   ) {}
 
   async findAll(query: PaginationQuery = {}) {
@@ -46,12 +49,10 @@ export class ArticlesService {
 
     return {
       articles,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
@@ -72,7 +73,22 @@ export class ArticlesService {
   }
 
   async findByCategory(categorySlug: string, query: PaginationQuery = {}) {
-    return this.findAll({ ...query, category: categorySlug });
+    // First, find the category
+    const category = await this.categoryRepository.findOne({
+      where: { slug: categorySlug, isActive: true }
+    });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    // Get articles for this category
+    const result = await this.findAll({ ...query, category: categorySlug });
+    
+    return {
+      ...result,
+      category,
+    };
   }
 
   async findTrending(limit = 10) {
@@ -104,12 +120,10 @@ export class ArticlesService {
 
     return {
       articles,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 }
