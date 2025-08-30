@@ -121,19 +121,248 @@ class RSSParser:
         if not image_url and 'media_thumbnail' in entry and entry.media_thumbnail:
             image_url = entry.media_thumbnail[0].get('url')
         
-        # Method 4: Extract from description or content
+        # Method 4: Check for itunes:image or other image fields
         if not image_url:
-            content = entry.get('description', '') or entry.get('content', [{}])[0].get('value', '')
+            # Check for various image fields in entry
+            for field in ['image', 'itunes_image', 'media_thumbnail']:
+                if hasattr(entry, field) and getattr(entry, field):
+                    img_data = getattr(entry, field)
+                    if isinstance(img_data, str):
+                        image_url = img_data
+                        break
+                    elif isinstance(img_data, dict) and 'url' in img_data:
+                        image_url = img_data['url']
+                        break
+                    elif isinstance(img_data, list) and img_data and 'url' in img_data[0]:
+                        image_url = img_data[0]['url']
+                        break
+        
+        # Method 5: Extract from description or content (enhanced)
+        if not image_url:
+            content = entry.get('description', '') or entry.get('summary', '')
+            if 'content' in entry and entry.content:
+                if isinstance(entry.content, list) and entry.content:
+                    content = entry.content[0].get('value', '')
+                else:
+                    content = str(entry.content)
+            
             if content:
-                img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', content)
-                if img_match:
-                    image_url = img_match.group(1)
+                # Try multiple image extraction patterns
+                patterns = [
+                    r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>',
+                    r'<img[^>]+src=([^>\s]+)[^>]*>',
+                    r'src=["\']([^"\']*\.(jpg|jpeg|png|gif|webp))["\']',
+                    r'(https?://[^\s<>"]+\.(jpg|jpeg|png|gif|webp))',
+                ]
+                
+                for pattern in patterns:
+                    img_match = re.search(pattern, content, re.IGNORECASE)
+                    if img_match:
+                        image_url = img_match.group(1)
+                        break
+        
+        # Method 6: For specific feed types, try web scraping (light scraping)
+        if not image_url and feed_url:
+            try:
+                # Get domain from feed URL for targeted extraction
+                domain = urlparse(feed_url).netloc.lower()
+                article_url = entry.get('link', '')
+                
+                # For TechCrunch, try to get featured image from article page
+                if 'techcrunch.com' in domain and article_url:
+                    image_url = self.extract_techcrunch_image(article_url)
+                # For The Verge, extract from article page
+                elif 'theverge.com' in domain and article_url:
+                    image_url = self.extract_verge_image(article_url)
+                    
+            except Exception as e:
+                logger.debug(f"Error in web scraping for image: {str(e)}")
         
         # Convert relative URLs to absolute
         if image_url and not image_url.startswith(('http://', 'https://')):
             image_url = urljoin(feed_url, image_url)
         
-        return image_url
+        # Validate image URL
+        if image_url and self.is_valid_image_url(image_url):
+            return image_url
+        
+        return None
+        
+    def is_valid_image_url(self, url: str) -> bool:
+        """Validate if URL looks like an image"""
+        if not url:
+            return False
+            
+        # Check if URL has image extension
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp')
+        url_lower = url.lower()
+        
+        # Direct image file check
+        if any(url_lower.endswith(ext) for ext in image_extensions):
+            return True
+            
+        # Check for common image URL patterns
+        if any(pattern in url_lower for pattern in ['image', 'img', 'photo', 'picture']):
+            return True
+            
+        return False
+    
+    async def extract_techcrunch_image(self, article_url: str) -> Optional[str]:
+        """Extract featured image from TechCrunch article"""
+        try:
+            async with self.session.get(article_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    # Look for featured image in meta tags
+                    patterns = [
+                        r'<meta property="og:image" content="([^"]+)"',
+                        r'<meta name="twitter:image" content="([^"]+)"',
+                        r'<img[^>]+class="[^"]*featured-image[^"]*"[^>]+src="([^"]+)"',
+                    ]
+                    
+                    for pattern in patterns:
+                        match = re.search(pattern, content)
+                        if match:
+                            return match.group(1)
+        except Exception as e:
+            logger.debug(f"Error extracting TechCrunch image: {str(e)}")
+        return None
+    
+    async def extract_verge_image(self, article_url: str) -> Optional[str]:
+        """Extract featured image from The Verge article"""
+        try:
+            async with self.session.get(article_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    # Look for featured image in meta tags
+                    patterns = [
+                        r'<meta property="og:image" content="([^"]+)"',
+                        r'<meta name="twitter:image" content="([^"]+)"',
+                        r'<img[^>]+data-original="([^"]+)"',
+                    ]
+                    
+                    for pattern in patterns:
+                        match = re.search(pattern, content)
+                        if match:
+                            return match.group(1)
+        except Exception as e:
+            logger.debug(f"Error extracting Verge image: {str(e)}")
+        return None
+        
+    async def extract_sciencedaily_image(self, article_url: str) -> Optional[str]:
+        """Extract featured image from Science Daily article"""
+        try:
+            async with self.session.get(article_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    # Look for featured image in meta tags or specific Science Daily patterns
+                    patterns = [
+                        r'<meta property="og:image" content="([^"]+)"',
+                        r'<meta name="twitter:image" content="([^"]+)"',
+                        r'<img[^>]+id="story_image"[^>]+src="([^"]+)"',
+                        r'<img[^>]+class="[^"]*story-image[^"]*"[^>]+src="([^"]+)"',
+                    ]
+                    
+                    for pattern in patterns:
+                        match = re.search(pattern, content)
+                        if match:
+                            return match.group(1)
+        except Exception as e:
+            logger.debug(f"Error extracting Science Daily image: {str(e)}")
+        return None
+        
+    async def extract_image_url_async(self, entry: dict, feed_url: str) -> Optional[str]:
+        """Async version of extract_image_url with web scraping capability"""
+        # First try all the non-async methods
+        image_url = None
+        
+        # Method 1: Check for media content
+        if 'media_content' in entry and entry.media_content:
+            for media in entry.media_content:
+                if media.get('medium') == 'image' or 'image' in media.get('type', ''):
+                    image_url = media.get('url')
+                    break
+        
+        # Method 2: Check for enclosures
+        if not image_url and 'enclosures' in entry:
+            for enclosure in entry.enclosures:
+                if enclosure.type and 'image' in enclosure.type:
+                    image_url = enclosure.href
+                    break
+        
+        # Method 3: Check for media thumbnail
+        if not image_url and 'media_thumbnail' in entry and entry.media_thumbnail:
+            image_url = entry.media_thumbnail[0].get('url')
+        
+        # Method 4: Check for itunes:image or other image fields
+        if not image_url:
+            # Check for various image fields in entry
+            for field in ['image', 'itunes_image', 'media_thumbnail']:
+                if hasattr(entry, field) and getattr(entry, field):
+                    img_data = getattr(entry, field)
+                    if isinstance(img_data, str):
+                        image_url = img_data
+                        break
+                    elif isinstance(img_data, dict) and 'url' in img_data:
+                        image_url = img_data['url']
+                        break
+                    elif isinstance(img_data, list) and img_data and 'url' in img_data[0]:
+                        image_url = img_data[0]['url']
+                        break
+        
+        # Method 5: Extract from description or content (enhanced)
+        if not image_url:
+            content = entry.get('description', '') or entry.get('summary', '')
+            if 'content' in entry and entry.content:
+                if isinstance(entry.content, list) and entry.content:
+                    content = entry.content[0].get('value', '')
+                else:
+                    content = str(entry.content)
+            
+            if content:
+                # Try multiple image extraction patterns
+                patterns = [
+                    r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>',
+                    r'<img[^>]+src=([^>\s]+)[^>]*>',
+                    r'src=["\']([^"\']*\.(jpg|jpeg|png|gif|webp))["\']',
+                    r'(https?://[^\s<>"]+\.(jpg|jpeg|png|gif|webp))',
+                ]
+                
+                for pattern in patterns:
+                    img_match = re.search(pattern, content, re.IGNORECASE)
+                    if img_match:
+                        image_url = img_match.group(1)
+                        break
+        
+        # Method 6: For specific feed types, try web scraping (async)
+        if not image_url and feed_url:
+            try:
+                # Get domain from feed URL for targeted extraction
+                domain = urlparse(feed_url).netloc.lower()
+                article_url = entry.get('link', '')
+                
+                # For TechCrunch, try to get featured image from article page
+                if 'techcrunch.com' in domain and article_url:
+                    image_url = await self.extract_techcrunch_image(article_url)
+                # For The Verge, extract from article page
+                elif 'theverge.com' in domain and article_url:
+                    image_url = await self.extract_verge_image(article_url)
+                # For Science Daily, try scraping
+                elif 'sciencedaily.com' in domain and article_url:
+                    image_url = await self.extract_sciencedaily_image(article_url)
+                    
+            except Exception as e:
+                logger.debug(f"Error in web scraping for image: {str(e)}")
+        
+        # Convert relative URLs to absolute
+        if image_url and not image_url.startswith(('http://', 'https://')):
+            image_url = urljoin(feed_url, image_url)
+        
+        # Validate image URL
+        if image_url and self.is_valid_image_url(image_url):
+            return image_url
+        
+        return None
     
     def clean_html(self, text: str) -> str:
         """Remove HTML tags from text"""
@@ -298,8 +527,8 @@ class RSSParser:
                 elif 'summary' in entry:
                     content = self.clean_html(entry.get('summary', ''))
                 
-                # Extract image
-                image_url = self.extract_image_url(entry, feed['url'])
+                # Extract image (now async)
+                image_url = await self.extract_image_url_async(entry, feed['url'])
                 
                 # Get author
                 author = entry.get('author', '') or entry.get('dc_creator', '')

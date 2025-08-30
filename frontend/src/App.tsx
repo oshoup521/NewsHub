@@ -70,7 +70,9 @@ const App: React.FC = () => {
         path="/auth/login"
         element={
           <GuestRoute>
-            <LoginPage />
+            <Layout>
+              <LoginPage />
+            </Layout>
           </GuestRoute>
         }
       />
@@ -78,7 +80,9 @@ const App: React.FC = () => {
         path="/auth/register"
         element={
           <GuestRoute>
-            <RegisterPage />
+            <Layout>
+              <RegisterPage />
+            </Layout>
           </GuestRoute>
         }
       />

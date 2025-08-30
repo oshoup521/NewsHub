@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 
 const Navbar: React.FC = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -27,6 +27,11 @@ const Navbar: React.FC = () => {
 
             {isAuthenticated ? (
               <>
+                {user && (
+                  <span className="text-gray-700 dark:text-gray-300 font-medium hidden sm:inline">
+                    Welcome, {user.username}!
+                  </span>
+                )}
                 <Link to="/bookmarks" className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
                   Bookmarks
                 </Link>
